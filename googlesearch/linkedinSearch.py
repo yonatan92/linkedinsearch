@@ -1,16 +1,16 @@
 
-import json
-import csv
+# import json
+# import csv
 import enum
 from enum import IntFlag
 from urllib.parse import urlparse
 import tldextract
-import numpy as np
+# import numpy as np
 from googlesearch.update_company_profile import FetchFromGoogle
 
-url = "www.microsoft.com"
-url_parse = urlparse("https://" + url)
-host_name = url_parse.netloc
+# url = "www.microsoft.com"
+# url_parse = urlparse("https://" + url)
+# host_name = url_parse.netloc
 query_params_pattern_dict = {
                  "website": "Website: ",
                  "size": "Company size: ",
@@ -28,6 +28,8 @@ class Result:
         :param link: the link of linkedin that rhe result get from.
         :param snippet: the snippet of the result.
         """
+        self.url = url
+        self.host_name = urlparse("https://" + self.url).netloc
         self.query_params_pattern_dict = query_params_dict
         self.link = link
         self.snippet = snippet.replace('\n', '')
@@ -60,7 +62,7 @@ class Result:
     def link_is_www(self):
         """
         Checks if the sub-domain of the linkedin url Is of the form of "www"
-        :return: if sub-domain is "www"
+        :return: boolean- if sub-domain is "www"
         """
         result = False
         if urlparse(self.link).netloc.startswith('www'):
@@ -92,8 +94,8 @@ class Result:
         result = False
         website_result = self.params_data_from_snippet['website']
         if len(urlparse(website_result).netloc) != 0:
-            if tldextract.extract(host_name).suffix == tldextract.extract(urlparse(website_result).netloc).suffix:
-                if tldextract.extract(host_name).domain == tldextract.extract(urlparse(website_result).netloc).domain:
+            if tldextract.extract(self.host_name).suffix == tldextract.extract(urlparse(website_result).netloc).suffix:
+                if tldextract.extract(self.host_name).domain == tldextract.extract(urlparse(website_result).netloc).domain:
                     result = True
 
         return result
@@ -150,16 +152,19 @@ class Result:
         self.state = self.calc_result_state()
 
 
-def add_results_to_list(data_items, query_params_dict):
+def add_results_to_list(data_items, query_params_dict, url):
     """
-    append result search to list
-    :param data_items:
-    :return: list of result search
+     append results search to list
+    :param data_items: the data we get from google search request
+    :param query_params_dict: the query params we search data for in results
+    :param url: the url of the company we search data for.
+    :return: list of results from search.
     """
+    # create enum dynamically depends the parameters we search data.
     enum_state = create_dynamic_enum(query_params_dict)
     list_items = []
     for item in data_items["items"]:
-        list_items.append(Result(item["link"], item["snippet"], query_params_dict, enum_state))
+        list_items.append(Result(item["link"], item["snippet"], query_params_dict, enum_state, url))
 
     return list_items
 
@@ -172,13 +177,15 @@ def fetch_data_from_google(request):
     """
     result = FetchFromGoogle.get(request).json()
     print(result)
+
     return result
 
 
-def parse_request_from_query_params(params):
+def parse_request_from_query_params(params, url):
     """
     create a string request from the query params
-    :param params:
+    :param params: the parameters we seek data from
+    :param url: the url of the company we search data for.
     :return: string for google request
     """
     request = f'{url} ' + (' OR '.join(params.keys()))
@@ -186,36 +193,34 @@ def parse_request_from_query_params(params):
     return request
 
 
-def write_data_to_csv(result_list, query_params):
+def find_best_result_data(result_list, query_params, url, first_try):
     """
     write to csv file data and return if data wrote to csv file.
     :param result_list: the list with result from request google search
     :param query_params: the params asked from google search.
+    :param first_try: boolean that represent if the script search for the best result in the first time or not.
+    :param url: the url of the company we search data for.
     :return:if data wrote to csv file.
     """
-    with open("info.csv", 'w', newline='') as new_file:
-        csv_writer = csv.writer(new_file)
-        csv_writer.writerow(query_params.keys())
-        not_succeeded = True
+    res = None
+    not_find_result = True
+    for result in result_list:
+        # case the result have all required info
+        if result.state == result.enum_state(pow(2, len(result.result_data)))-1:
+            res = tuple(result.params_data_from_snippet.values())
+            not_find_result = False
+            break
+    if not_find_result:
         for result in result_list:
-            print(result.params_data_from_snippet)
-            print((result.result_data))
-            print(result.state)
-            print("----------------------------------------")
-            # case the result have all required info
-            # if result.state == result.enum_state(pow(2, len(result.result_data)))-1:
-            csv_writer.writerow(result.params_data_from_snippet.values())
-            not_succeeded = False
-        #             break
-        # if not_succeeded:
-        #     for result in result_list:
-        #         # Case the result have all info but link is not "www"
-        #         if result.state == result.enum_state(pow(2, len(result.result_data)-1))-1:
-        #             csv_writer.writerow(result.params_data_from_snippet.values())
-        #             not_succeeded = False
-        #             break
-
-        return not_succeeded
+            # Case the result have all info but link is not "www"
+            if result.state == result.enum_state(pow(2, len(result.result_data)-1))-1:
+                res = tuple(result.params_data_from_snippet.values())
+                break
+    # case we didn't find good result so we approach google search again
+    elif first_try and not_find_result:
+            res = re_request_from_google(result_list, query_params, url)
+    # print(res)
+    return res
 
 
 def create_dynamic_enum(query_params_dict):
@@ -248,17 +253,18 @@ def create_dynamic_enum(query_params_dict):
     return dynamic_enum
 
 
-def extract_company_data_from_linkedin(query_params_dict):
+def extract_company_data_from_linkedin(query_params_dict, url):
     """
      parse request for google search API, analyze the data and write to csv file the relevant data.
     :param query_params_dict: the query parameters for the google API request
+    :param url: the url of the company we search data for.
     """
-    request = parse_request_from_query_params(query_params_dict)
+    request = parse_request_from_query_params(query_params_dict, url)
     data = fetch_data_from_google(request)
-    results_list = add_results_to_list(data, query_params_dict)
-    write_not_succeeded = write_data_to_csv(results_list, query_params_dict)
-    # if write_not_succeeded:
-    re_request_from_google(results_list, query_params_dict)
+    results_list = add_results_to_list(data, query_params_dict, url)
+    best_result_data = find_best_result_data(results_list, query_params_dict,url, True)
+
+    return best_result_data
 
 
 def search_for_not_found_query_data(dict_data_prev_result_list, query_params):
@@ -285,19 +291,20 @@ def search_for_not_found_query_data(dict_data_prev_result_list, query_params):
     return result
 
 
-def request_per_params_are_none(new_params_dict_list, dict_data_prev_result_list):
+def request_per_params_are_none(new_params_dict_list, dict_data_prev_result_list, url):
     """
     request with the params that are none(did not find data params in first request) and update the new info
     that find with the associated result links in first request.
     :param new_params_dict_list:dict with links as key and dict of params data that not found as values.
     :param dict_data_prev_result_list:dict with links as key and result as value.
+    :param url: the url of the company we search data for.
     :return:
     """
     # for each pattern of params we found as None, we search and request with those params in google search API
     for params in new_params_dict_list:
-        request = parse_request_from_query_params(params)
+        request = parse_request_from_query_params(params, url)
         data = fetch_data_from_google(request)
-        new_results_list = add_results_to_list(data, params)
+        new_results_list = add_results_to_list(data, params, url)
         # for all new results that we get, we check which result link are also in previous result link
         # and then update the data we get in previous result
         for result in new_results_list:
@@ -306,29 +313,16 @@ def request_per_params_are_none(new_params_dict_list, dict_data_prev_result_list
                 if result.link in dict_data_prev_result_list:
                     # update the new data we get in corresponding previous result
                     dict_data_prev_result_list[result.link].params_data_from_snippet[key] = value
-                    # recalculate result properties after update data
+                    # recalculate result properties and state after update data
                     dict_data_prev_result_list[result.link].update_state()
 
 
-def write_new_request_to_csv(dict_data_prev_result_list, prev_result_list):
-    flag = True
-    with open("info.csv", 'w', newline='') as test_file:
-            csv_writer = csv.writer(test_file)
-            csv_writer.writerow(query_params_pattern_dict.keys())
-            for key, values in dict_data_prev_result_list.items():
-                item = (next((x for x in prev_result_list if x.link == key), None))
-                print(item.has_website_match(), flag)
-                if item.has_website_match() and flag:
-                        csv_writer.writerow(values.values())
-                        flag = False
-                        break
-
-
-def re_request_from_google(prev_result_list, query_params):
+def re_request_from_google(prev_result_list, query_params, url):
     """
      Made new request to google search API if the last request did not yield all Required data follow the query params.
     :param prev_result_list: list of results from the first request from google search API
     :param query_params: the query params from the first request from google search API.
+    :param url: the url of the company we search data for.
     """
     # write_new_request_to_csv(dict_data_prev_result_list, prev_result_list)
     dict_data_prev_result_list = {}
@@ -337,21 +331,23 @@ def re_request_from_google(prev_result_list, query_params):
         dict_data_prev_result_list[result.link] = result
     # all the data not found for each result from google search API query.
     new_params_dict_list = search_for_not_found_query_data(dict_data_prev_result_list, query_params)
-    request_per_params_are_none(new_params_dict_list, dict_data_prev_result_list)
-    for result in dict_data_prev_result_list.values():
-        print(result.params_data_from_snippet)
-        print((result.result_data))
-        print(result.state)
-        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@22")
-    with open("data.csv", 'w', newline='') as test_file:
-        csv_writer = csv.writer(test_file)
-        csv_writer.writerow(query_params_pattern_dict.keys())
-        for values in dict_data_prev_result_list.values():
-            csv_writer.writerow(values.params_data_from_snippet.values())
+    # request again from google search API with the parameters that not found data
+    request_per_params_are_none(new_params_dict_list, dict_data_prev_result_list, url)
+    # find the best result again after we update the results with new data
+    result = find_best_result_data(list(dict_data_prev_result_list.values()), query_params, False)
+
+    return result
 
 
-extract_company_data_from_linkedin(query_params_pattern_dict)
+def companies_linkedin_data(url_list, params_pattern_dict):
 
+    result = map(lambda x: extract_company_data_from_linkedin(params_pattern_dict, x), url_list)
+
+    return list(result)
+# extract_company_data_from_linkedin(query_params_pattern_dict, url)
+
+
+companies_linkedin_data(["www.microsoft.com", "www.everthere.co", "www.intezer.com", "www.jenkins.io"],query_params_pattern_dict)
 
 
 
