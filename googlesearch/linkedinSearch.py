@@ -8,15 +8,6 @@ import tldextract
 # import numpy as np
 from googlesearch.update_company_profile import FetchFromGoogle
 
-# url = "www.microsoft.com"
-# url_parse = urlparse("https://" + url)
-# host_name = url_parse.netloc
-query_params_pattern_dict = {
-                 "website": "Website: ",
-                 "size": "Company size: ",
-                 "headquarters": "Headquarters: "
-                 }
-
 
 class Result:
     """
@@ -27,16 +18,31 @@ class Result:
         """
         :param link: the link of linkedin that rhe result get from.
         :param snippet: the snippet of the result.
+        :param enum_state: the dynamic enum that represents result state
+        :param url: the company url we search data from
         """
+        # the company url -> example: www.everthere.co
         self.url = url
+        # the hostname from the company url -> example: everthere
         self.host_name = urlparse("https://" + self.url).netloc
+        # params dictionary with the query params and their snippet pattern -> example: {"website": "Website: ",
+        #                  "size": "Company size: ",
+        #                  "headquarters": "Headquarters: "
+        #                  }
         self.query_params_pattern_dict = query_params_dict
+        # the linkedin link the result receive from-> example: "https://il.linkedin.com/company/everthere"
         self.link = link
+        # the result snippet from google search API
         self.snippet = snippet.replace('\n', '')
+        # dictionary with params as key and their location in snippet-> example: {"website": 13}
         self.params_index = self.find_params_index_in_snippet()
+        # dictionary with params as key and they data from snippet as value ->example {"website": "http://www.everthere.co"."size": None}
         self.params_data_from_snippet = self.extract_data_of_query_from_snippet()
+        # dictionary with params as key an boolean values as value (if found data)->example: {"link_is_www":True}
         self.result_data = self.exists_data_in_snippet()
+        # the dynamic enum
         self.enum_state = enum_state
+        # the state of the result -> example: state.WEBSITE|SIZE its mean the result has website match and found company size data in snippet.
         self.state = self.calc_result_state()
 
     def __repr__(self):
@@ -176,7 +182,6 @@ def fetch_data_from_google(request):
     :return: the json result from google response
     """
     result = FetchFromGoogle.get(request).json()
-    print(result)
 
     return result
 
@@ -219,7 +224,6 @@ def find_best_result_data(result_list, query_params, url, first_try):
     # case we didn't find good result so we approach google search again
     elif first_try and not_find_result:
             res = re_request_from_google(result_list, query_params, url)
-    # print(res)
     return res
 
 
@@ -339,15 +343,24 @@ def re_request_from_google(prev_result_list, query_params, url):
     return result
 
 
-def companies_linkedin_data(url_list, params_pattern_dict):
-
-    result = map(lambda x: extract_company_data_from_linkedin(params_pattern_dict, x), url_list)
+def extract_companies_linkedin_data(url_list, params_pattern_dict):
+    """
+     get company data from linkedin by the company url.
+    :param url_list: urls company list to get data from linkedin
+    :param params_pattern_dict: dictionary with params as key and they pattern in google snippet as value.
+    :return: list of company's data from linkedin
+    """
+    result = map(lambda url: extract_company_data_from_linkedin(params_pattern_dict, url), url_list)
+    print(result)
 
     return list(result)
-# extract_company_data_from_linkedin(query_params_pattern_dict, url)
-
-
-companies_linkedin_data(["www.microsoft.com", "www.everthere.co", "www.intezer.com", "www.jenkins.io"],query_params_pattern_dict)
+query_params_pattern_dict = {
+                 "website": "Website: ",
+                 "size": "Company size: ",
+                 "headquarters": "Headquarters: "
+                 }
+# example run
+extract_companies_linkedin_data(["www.microsoft.com", "www.everthere.co", "www.intezer.com", "www.jenkins.io"],query_params_pattern_dict)
 
 
 
