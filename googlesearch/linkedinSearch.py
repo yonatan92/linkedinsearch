@@ -359,7 +359,7 @@ query_params_pattern_dict = {
                  "size": "Company size: ",
                  "headquarters": "Headquarters: "
                  }
-# example run
+# example rn
 extract_companies_linkedin_data(["www.microsoft.com", "www.everthere.co", "www.intezer.com", "www.jenkins.io"],query_params_pattern_dict)
 
 
